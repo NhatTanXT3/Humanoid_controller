@@ -44,8 +44,13 @@ void SensorModule::Recev_Data_hanlder()
             /*
              * begin coding
              */
-            if(Store_chr[1]==PC_SENSOR_READ_RAW){
+
+
+            if((Store_chr[1]==PC_SENSOR_READ_MODE_1)||(Store_chr[1]==PC_SENSOR_READ_MODE_2)||((Store_chr[1]==PC_SENSOR_READ_MODE_3))){
+
+                DataReceived_readMode=Store_chr[1];
                 flagDataReceived_readRaw=1;
+
                 memset(sensorDataAvail, '\0', sizeof(sensorDataAvail));
                 //===============================
                 NumofSensor=(dataIndex-3)/4;
@@ -74,8 +79,13 @@ void SensorModule::Recev_Data_hanlder()
 //                }
 
             }
-            else if(Store_chr[1]==PC_SENSOR_READ_PROCESSED){
-                flagDataReceived_readProcessed=1;
+            else if(Store_chr[1]==SENDING_PASSIVE_LEFT_ARM_||Store_chr[1]==SENDING_PASSIVE_RIGHT_ARM_){
+                flagSetPassive=1;
+                setPassive_IDarm=Store_chr[1];
+            }
+            else if(Store_chr[1]==SENDING_MODE_CONTROL_HEAD){
+                flagDataReceived_readRaw_Head=1;
+
                 memset(sensorDataAvail, '\0', sizeof(sensorDataAvail));
                 //===============================
                 NumofSensor=(dataIndex-3)/4;
@@ -83,24 +93,42 @@ void SensorModule::Recev_Data_hanlder()
                 {
                     if(Store_chr[i*4+5]==((Store_chr[i*4+2]^Store_chr[i*4+3]^Store_chr[i*4+4])&0x7F))
                     {
-                        sensorData[Store_chr[i*4+2]&0x1F]=(Store_chr[i*4+4]&0x7F)|((Store_chr[i*4+3]&0x7F)<<7)|((Store_chr[i*4+2]&0x60)<<9);
+                        sensorData[Store_chr[i*4+2]&0x1F]=(Store_chr[i*4+4]&0x7F)|((Store_chr[i*4+3]&0x7F)<<7);
                         sensorDataAvail[Store_chr[i*4+2]&0x1F]=1;
                     }
                     else
                         cout<<"error checksum 2"<<endl;
                 }
-
-                for (unsigned char i=0; i<20;i++)
-                {
-                    if(sensorDataAvail[i])
-                    {
-                        if(i<8)
-                            cout<<(int)i<<" : "<<sensorData[i]<<endl;
-                        else
-                            cout<<(int)i<<" : "<<sensorData[i]/100.0<<endl;
-                    }
-                }
+            }else if(Store_chr[1]==SENDING_MODE_RESET_HEAD){
+                flagResetHead=1;
             }
+//            else if(Store_chr[1]==PC_SENSOR_READ_PROCESSED){
+//                flagDataReceived_readProcessed=1;
+//                memset(sensorDataAvail, '\0', sizeof(sensorDataAvail));
+//                //===============================
+//                NumofSensor=(dataIndex-3)/4;
+//                for (unsigned char i=0;i<NumofSensor;i++)
+//                {
+//                    if(Store_chr[i*4+5]==((Store_chr[i*4+2]^Store_chr[i*4+3]^Store_chr[i*4+4])&0x7F))
+//                    {
+//                        sensorData[Store_chr[i*4+2]&0x1F]=(Store_chr[i*4+4]&0x7F)|((Store_chr[i*4+3]&0x7F)<<7)|((Store_chr[i*4+2]&0x60)<<9);
+//                        sensorDataAvail[Store_chr[i*4+2]&0x1F]=1;
+//                    }
+//                    else
+//                        cout<<"error checksum 2"<<endl;
+//                }
+
+//                for (unsigned char i=0; i<20;i++)
+//                {
+//                    if(sensorDataAvail[i])
+//                    {
+//                        if(i<8)
+//                            cout<<(int)i<<" : "<<sensorData[i]<<endl;
+//                        else
+//                            cout<<(int)i<<" : "<<sensorData[i]/100.0<<endl;
+//                    }
+//                }
+//            }
             else if(dataIndex==6){
             }
         }

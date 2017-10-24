@@ -9,7 +9,7 @@ using namespace std;
 #include "robot_controller/mainrobotcontroller.h"
 
 #include "robot_controller/cmdRobotControllerMsg.h"
-#include "robot_controller/SAMJointPos12Msg.h"
+#include "robot_controller/SAMJointPos12UpperMsg.h"
 
 
 
@@ -20,12 +20,15 @@ struct Sys_flag_struct{
     unsigned char getFilteredData_125Hz:1;
     unsigned char getRawData_125Hz:1;
     unsigned char getFilteredData_25Hz:1;
+    unsigned char sam_enable;
+
 }sys_flag;
 
 
 #define SENSOR_TURNOFF 0
 #define SENSOR_SEND_FILTERED_25HZ 1
-//#define SENSOR_SEND_FILTERED_125HZ 2
+#define SAM_ENABLE      6
+#define SAM_DISABLE     7
 //#define SENSOR_SEND_RAW_50HZ 3
 //#define SENSOR_SEND_RAW_125HZ 4
 
@@ -75,6 +78,14 @@ void sub_function(const robot_controller::cmdRobotControllerMsg::ConstPtr& msg){
         //        sys_flag.getRawData_50Hz=0;
         //        sys_flag.getRawData_125Hz=0;
         break;
+    case SAM_ENABLE:
+        sys_flag.sam_enable=1;
+        ROS_INFO("SAM_ENABLE : %d", msg->command);
+        break;
+    case SAM_DISABLE:
+        sys_flag.sam_enable=0;
+        ROS_INFO("SAM_DISABLE : %d", msg->command);
+        break;
         //    case SENSOR_SEND_FILTERED_125HZ:
         //        ROS_INFO("SENSOR_SEND_FILTERED_125HZ: %d", msg->command);
         //        sys_flag.getFilteredData_50Hz=0;
@@ -115,12 +126,12 @@ int main(int argc, char **argv){
     //    ros::Publisher robot_controller_pub =  n.advertise<sensor_hub::dataSensorMsg>("robot_controller_pub",1000);
     //    ros::Subscriber robot_controller_sub=n.subscribe<robot_controller_hub::cmdSensorMsg>("robot_controller_sub",200,sub_function);
     //    sensor_hub::dataSensorMsg sensorMsg;
-    ros::Publisher robot_controller_pub =  n.advertise<robot_controller::SAMJointPos12Msg>("sam_pos12_sub",1000);
+    ros::Publisher robot_controller_pub =  n.advertise<robot_controller::SAMJointPos12UpperMsg>("sam_pos12_upper_sub",1000);
     ros::Subscriber robot_controller_sub= n.subscribe<robot_controller::cmdRobotControllerMsg>("robot_controller_sub",1000,sub_function);
-    robot_controller::SAMJointPos12Msg SAMPos12Msg;
+    robot_controller::SAMJointPos12UpperMsg SAMPos12Msg;
 
     sys_flag.getFilteredData_25Hz=0;
- ROS_INFO("ready");
+    ROS_INFO("ready");
     if(mySensor->Serial!= -1)
     {
         while(ros::ok())
@@ -151,97 +162,235 @@ int main(int argc, char **argv){
 
             //==========================================
             mySensor->Recev_Data_hanlder();
-            if(mySensor->flagDataReceived_readRaw){
+            if(mySensor->flagSetPassive){
+                mySensor->flagSetPassive=0;
+                if(mySensor->setPassive_IDarm==SENDING_PASSIVE_LEFT_ARM_){
+                    SAMPos12Msg.SAMMode[12]=2;
+                    SAMPos12Msg.SAMMode[14]=2;
+                    SAMPos12Msg.SAMMode[16]=2;
+                    SAMPos12Msg.SAMMode[18]=2;
+
+                    SAMPos12Msg.SAMMode[13]=0;
+                    SAMPos12Msg.SAMMode[15]=0;
+                    SAMPos12Msg.SAMMode[17]=0;
+                    SAMPos12Msg.SAMMode[19]=0;
+                }
+                else if(mySensor->setPassive_IDarm==SENDING_PASSIVE_RIGHT_ARM_){
+                    SAMPos12Msg.SAMMode[13]=2;
+                    SAMPos12Msg.SAMMode[15]=2;
+                    SAMPos12Msg.SAMMode[17]=2;
+                    SAMPos12Msg.SAMMode[19]=2;
+
+                    SAMPos12Msg.SAMMode[12]=0;
+                    SAMPos12Msg.SAMMode[14]=0;
+                    SAMPos12Msg.SAMMode[16]=0;
+                    SAMPos12Msg.SAMMode[18]=0;
+                }
+                if(sys_flag.sam_enable)
+                    robot_controller_pub.publish(SAMPos12Msg);
+                cout<<"set passive"<<endl;
+            }
+            else if(mySensor->flagDataReceived_readRaw_Head){
+                mySensor->flagDataReceived_readRaw_Head=0;
+
+                for(unsigned char i=23;i<25;i++){
+                    SAMPos12Msg.SAMMode[i]=0;
+                }
+
+                if(mySensor->sensorDataAvail[4]&&mySensor->sensorDataAvail[5]){
+                    angle_robot[23]+=((double)mySensor->sensorData[4]-520)/10;
+                    angle_robot[24]+=((double)mySensor->sensorData[5]-520)/10;
+
+                    if(angle_robot[23]>500)
+                        angle_robot[23]=500;
+                    else if(angle_robot[23]<-500)
+                        angle_robot[23]=-500;
+
+                    if(angle_robot[24]>500)
+                        angle_robot[24]=500;
+                    else if(angle_robot[24]<-500)
+                        angle_robot[24]=-500;
+                    SAMPos12Msg.SAMPos12[23]=(unsigned int)(angle_robot[23]+(double)samPos12_hardware[23]);
+                    SAMPos12Msg.SAMPos12[24]=(unsigned int)(angle_robot[24]+(double)samPos12_hardware[24]);
+
+                    SAMPos12Msg.SAMMode[23]=1;
+                    SAMPos12Msg.SAMMode[24]=1;
+                }else{
+                    SAMPos12Msg.SAMMode[23]=0;
+                    SAMPos12Msg.SAMMode[24]=0;
+                }
+                if(sys_flag.sam_enable)
+                    robot_controller_pub.publish(SAMPos12Msg);
+
+                cout<<mySensor->sensorData[4]<<" . "<<mySensor->sensorData[5]<<" . "<<angle_robot[23]<<" . "<<angle_robot[24]<<endl;
+
+            }
+            else if(mySensor->flagResetHead){
+                mySensor->flagResetHead=0;
+
+                angle_robot[23]=0;
+                angle_robot[24]=0;
+                SAMPos12Msg.SAMPos12[23]=(unsigned int)((double)samPos12_hardware[23]);
+                SAMPos12Msg.SAMPos12[24]=(unsigned int)((double)samPos12_hardware[24]);
+
+                SAMPos12Msg.SAMMode[23]=1;
+                SAMPos12Msg.SAMMode[24]=1;
+                if(sys_flag.sam_enable)
+                    robot_controller_pub.publish(SAMPos12Msg);
+
+                cout<<"reset head"<<endl;            }
+            else  if(mySensor->flagDataReceived_readRaw){
                 mySensor->flagDataReceived_readRaw=0;
                 //===========================================
-                //                unsigned char Trans_chr[1] ={ '1'};
-                //                mySensor->Send_Serial_String(mySensor->Serial, Trans_chr, 1);
-//                if(mySensor->sensorDataAvail[0])
-//                {
-//                    SAMPos12Msg.SAMMode[12]=1;
-//                    SAMPos12Msg.SAMPos12[12]=mySensor->sensorData[0];
-//                }
-//                else{
-//                    SAMPos12Msg.SAMMode[12]=0;
-//                }
 
-//                if(mySensor->sensorDataAvail[1])
-//                {
-//                    SAMPos12Msg.SAMMode[14]=1;
-//                    SAMPos12Msg.SAMPos12[14]=mySensor->sensorData[1];;
-//                }
-//                else{
-//                    SAMPos12Msg.SAMMode[14]=0;
-//                }
+
+                for(unsigned char i=0;i<25;i++){
+                    SAMPos12Msg.SAMMode[i]=0;
+                }
 
                 if(mySensor->sensorDataAvail[0]&&mySensor->sensorDataAvail[3]){
-                    angle_controller[12]=-(mySensor->sensorData[0]-930)*300/1024*M_PI/180;
-                    angle_controller[14]=(mySensor->sensorData[3]-238)*300/1024*M_PI/180;
+                    angle_controller[12]=-((double)mySensor->sensorData[0]-930)*300/1024*M_PI/180;
+                    angle_controller[14]=((double)mySensor->sensorData[3]-238)*300/1024*M_PI/180;
 
-                    if(angle_controller[12]<0)
-                        angle_controller[12]=0;
+                    if(angle_controller[12]<=0)
+                        angle_controller[12]=0.01;
                     else if (angle_controller[12]>=M_PI/2) {
-                        angle_controller[12]=M_PI/2-0.001;
+                        angle_controller[12]=M_PI/2-0.01;
                     }
 
-                    if(angle_controller[14]<0)
-                        angle_controller[14]=0;
+                    if(angle_controller[14]<=0)
+                        angle_controller[14]=0.01;
                     else if(angle_controller[14]>M_PI)
                     {
-                        angle_controller[14]=M_PI;
+                        angle_controller[14]=M_PI-0.01;
                     }
 
 
-//                    if(cos(angle_controller[14])<0){
-//                        angle_robot[14]=M_PI-asin(sin(angle_controller[12])*cos(angle_controller[14]));
-//                    }
-//                    else{
-//                        angle_robot[14]=asin(sin(angle_controller[12])*cos(angle_controller[14]));
-//                    }
 
-                     angle_robot[14]=asin(sin(angle_controller[12])*cos(angle_controller[14]));
+                    angle_robot[14]=asin(sin(angle_controller[12])*cos(angle_controller[14]));
 
                     if(cos(angle_robot[14])!=0){
-//                        angle_robot[12]=acos(cos(angle_controller[12])*cos(angle_controller[14])/cos(angle_robot[14]));
-                        angle_robot[12]=asin(sin(angle_controller[14])/cos(angle_robot[14]));
+                        angle_robot[12]=acos(cos(angle_controller[12])*cos(angle_controller[14])/cos(angle_robot[14]));
                     }
                     else{
                         angle_robot[12]=M_PI/2;
                     }
 
-                    SAMPos12Msg.SAMMode[14]=1;
-                    SAMPos12Msg.SAMMode[12]=1;
 
-                    SAMPos12Msg.SAMPos12[14]=(unsigned int)((angle_robot[14]*180/M_PI-90)*degreeToPose12+(double)samPos12_hardware[14]);;
-                    SAMPos12Msg.SAMPos12[12]=(unsigned int)((angle_robot[12]*180/M_PI)*degreeToPose12+(double)samPos12_hardware[12]);;
+                    SAMPos12Msg.SAMPos12[14]=(unsigned int)((angle_robot[14]*180/M_PI-90)*degreeToPose12+(double)samPos12_hardware[14]);
+                    SAMPos12Msg.SAMPos12[12]=(unsigned int)((angle_robot[12]*180/M_PI)*degreeToPose12+(double)samPos12_hardware[12]);
+
+                    SAMPos12Msg.SAMPos12[13]= (unsigned int)((-angle_robot[12]*180/M_PI)*degreeToPose12+(double)samPos12_hardware[13]);
+                    SAMPos12Msg.SAMPos12[15]= (unsigned int)((-angle_robot[14]*180/M_PI+90)*degreeToPose12+(double)samPos12_hardware[15]);
+
+                    if(mySensor->DataReceived_readMode==PC_SENSOR_READ_MODE_1){
+                        SAMPos12Msg.SAMMode[14]=1;
+                        SAMPos12Msg.SAMMode[12]=1;
+                        SAMPos12Msg.SAMMode[15]=1;
+                        SAMPos12Msg.SAMMode[13]=1;
+                    }else if(mySensor->DataReceived_readMode==PC_SENSOR_READ_MODE_2){
+                        SAMPos12Msg.SAMMode[14]=0;
+                        SAMPos12Msg.SAMMode[12]=0;
+                        SAMPos12Msg.SAMMode[15]=1;
+                        SAMPos12Msg.SAMMode[13]=1;
+                    }
+                    else if(mySensor->DataReceived_readMode==PC_SENSOR_READ_MODE_3){
+                        SAMPos12Msg.SAMMode[14]=1;
+                        SAMPos12Msg.SAMMode[12]=1;
+                        SAMPos12Msg.SAMMode[15]=0;
+                        SAMPos12Msg.SAMMode[13]=0;
+                    }
 
 
 
                 }else{
                     SAMPos12Msg.SAMMode[14]=0;
                     SAMPos12Msg.SAMMode[12]=0;
+                    SAMPos12Msg.SAMMode[15]=0;
+                    SAMPos12Msg.SAMMode[13]=0;
                 }
-
+                double sin_angle_robot=0;
                 if(mySensor->sensorDataAvail[1])
                 {
-                    angle_robot[16]=(mySensor->sensorData[1]-486)*300/1024*M_PI/180;
-                     SAMPos12Msg.SAMMode[16]=1;
-                      SAMPos12Msg.SAMPos12[16]=(unsigned int)((angle_robot[16]*180/M_PI)*degreeToPose12+(double)samPos12_hardware[16]);;
-                }else
+                    angle_controller[16]=(mySensor->sensorData[1]-486)*300/1024*M_PI/180;
+
+                    if(angle_controller[16]<=-M_PI/2)
+                        angle_controller[16]=-M_PI/2+0.01;
+                    else if (angle_controller[16]>=M_PI/2) {
+                        angle_controller[16]=M_PI/2-0.01;
+                    }
+
+                    if(cos(angle_robot[14])!=0)
+                    {
+                        sin_angle_robot=(-sin(angle_controller[12])*sin(angle_controller[14])*cos(angle_controller[16])+cos(angle_controller[12])*sin(angle_controller[16]))/cos(angle_robot[14]);
+                        angle_robot[16]=asin(sin_angle_robot);
+
+                    }else
+                        angle_robot[16]=angle_controller[16];
+
+
+
+
+                    SAMPos12Msg.SAMPos12[16]=(unsigned int)((angle_robot[16]*180/M_PI)*degreeToPose12+(double)samPos12_hardware[16]);
+
+                    SAMPos12Msg.SAMPos12[17]= (unsigned int)((-angle_robot[16]*180/M_PI)*degreeToPose12+(double)samPos12_hardware[17]);
+
+
+
+
+                    if(mySensor->DataReceived_readMode==PC_SENSOR_READ_MODE_1){
+                        SAMPos12Msg.SAMMode[16]=1;
+                        SAMPos12Msg.SAMMode[17]=1;
+                    }else if(mySensor->DataReceived_readMode==PC_SENSOR_READ_MODE_2){
+                        SAMPos12Msg.SAMMode[16]=0;
+                        SAMPos12Msg.SAMMode[17]=1;
+                    }
+                    else if(mySensor->DataReceived_readMode==PC_SENSOR_READ_MODE_3){
+                        SAMPos12Msg.SAMMode[16]=1;
+                        SAMPos12Msg.SAMMode[17]=0;
+                    }
+
+                }else{
                     SAMPos12Msg.SAMMode[16]=0;
+                    SAMPos12Msg.SAMMode[17]=0;
+                }
 
                 if(mySensor->sensorDataAvail[2])
                 {
                     angle_robot[18]=(mySensor->sensorData[2]-568)*300/1024*M_PI/180;
-                     SAMPos12Msg.SAMMode[18]=1;
-                      SAMPos12Msg.SAMPos12[18]=(unsigned int)((angle_robot[18]*180/M_PI)*degreeToPose12+(double)samPos12_hardware[18]);;
+
+                    SAMPos12Msg.SAMPos12[18]=(unsigned int)((angle_robot[18]*180/M_PI)*degreeToPose12+(double)samPos12_hardware[18]);
+
+                    SAMPos12Msg.SAMPos12[19]=(unsigned int)((-angle_robot[18]*180/M_PI)*degreeToPose12+(double)samPos12_hardware[19]);
+
+
+                    if(mySensor->DataReceived_readMode==PC_SENSOR_READ_MODE_1){
+
+                        SAMPos12Msg.SAMMode[18]=1;
+                        SAMPos12Msg.SAMMode[19]=1;
+                    }else if(mySensor->DataReceived_readMode==PC_SENSOR_READ_MODE_2){
+
+                        SAMPos12Msg.SAMMode[18]=0;
+                        SAMPos12Msg.SAMMode[19]=1;
+                    }
+                    else if(mySensor->DataReceived_readMode==PC_SENSOR_READ_MODE_3){
+
+                        SAMPos12Msg.SAMMode[18]=1;
+                        SAMPos12Msg.SAMMode[19]=0;
+                    }
+
+                }else{
+                    SAMPos12Msg.SAMMode[18]=0;
+                    SAMPos12Msg.SAMMode[19]=0;
                 }
 
 
 
-                 cout<<mySensor->sensorData[0]<<" : "<< angle_controller[12]*180/M_PI<<" -- "<<mySensor->sensorData[3]<<" : "<<angle_controller[14]*180/M_PI<<
-                                             " -- "<<  angle_robot[12]*180/M_PI<<" : "<< angle_robot[14]*180/M_PI<<endl;
-                robot_controller_pub.publish(SAMPos12Msg);
+                cout<<mySensor->sensorData[0]<<" : "<< angle_controller[12]*180/M_PI<<" -- "<<mySensor->sensorData[3]<<" : "<<angle_controller[14]*180/M_PI<<
+                                               " -- "<<mySensor->sensorData[1]<<" : "<<angle_controller[16]*180/M_PI<<
+                                               " -- "<<  angle_robot[12]*180/M_PI<<" : "<< angle_robot[14]*180/M_PI<<" : "<< angle_robot[16]*180/M_PI<<" . "<<sin_angle_robot<<endl;
+                if(sys_flag.sam_enable)
+                    robot_controller_pub.publish(SAMPos12Msg);
 
                 //                sensorMsg.zmp_P0=mySensor->sensorData[0];
                 //                sensorMsg.zmp_P1=mySensor->sensorData[1];
